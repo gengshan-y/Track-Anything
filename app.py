@@ -458,7 +458,7 @@ with gr.Blocks() as iface:
     )        
     
     def exit_gradio():
-        iface.close()
+        os._exit(0)
 
     with gr.Row():
 
