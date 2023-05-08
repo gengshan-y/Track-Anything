@@ -23,7 +23,7 @@ class BaseInpainter:
 		self.model.eval()
 		self.device = device
 		# load configurations
-		with open("inpainter/config/config.yaml", 'r') as stream: 
+		with open("./preprocess/third_party/Track-Anything/inpainter/config/config.yaml", 'r') as stream: 
 			config = yaml.safe_load(stream) 
 		self.neighbor_stride = config['neighbor_stride']
 		self.num_ref = config['num_ref']
