@@ -372,7 +372,7 @@ def vos_tracking_video(video_state, interactive_state, mask_dropdown):
 
     video_output = generate_video_from_frames(
         video_state["painted_images"],
-        output_path="./result/track/{}".format(video_state["video_name"]),
+        output_path="./%s/result/track/%s"%(root_dir,video_state["video_name"]),
         fps=fps,
     )  # import video_input to name the output video
     interactive_state["inference_times"] += 1
