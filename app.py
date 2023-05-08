@@ -1,5 +1,6 @@
 import gradio as gr
 import argparse
+import configparser
 import gdown
 import cv2
 import numpy as np
@@ -283,6 +284,8 @@ def vos_tracking_video(video_state, interactive_state, mask_dropdown):
     video_output = generate_video_from_frames(video_state["painted_images"], output_path="./result/track/{}".format(video_state["video_name"]), fps=fps) # import video_input to name the output video
     interactive_state["inference_times"] += 1
     
+    shutil.copy(video_output, '%s/vis.mp4'%(video_state["output"]))
+    
     print("For generating this tracking result, inference times: {}, click times: {}, positive: {}, negative: {}".format(interactive_state["inference_times"], 
                                                                                                                                            interactive_state["positive_click_times"]+interactive_state["negative_click_times"],
                                                                                                                                            interactive_state["positive_click_times"],
@@ -381,21 +384,20 @@ e2fgvi_checkpoint = download_checkpoint_from_google_drive(e2fgvi_checkpoint_id, 
 # initialize sam, xmem, e2fgvi models
 model = TrackingAnything(SAM_checkpoint, xmem_checkpoint, e2fgvi_checkpoint,args)
 
-config = open(args.config, "r")
 
 input_dir, output_dir, uuids = [], [], []
-for line in config:
-    if "IN" in line:
-        line = line.strip("IN:").strip("\n").strip()
-        input_dir.append(line)
-        
-    elif "OUT" in line:
-        line = line.strip("OUT:").strip("\n").strip()
-        output_dir.append(line)
+config = configparser.RawConfigParser()
+config.read("database/configs/%s.config" % args.config)
+for vidid in range(len(config.sections()) - 1):
+    img_path = config.get("data_%d" % vidid, "img_path")
+    input_dir.append(img_path)
+    output_dir.append(img_path.replace("JPEGImages", "Annotations"))
 
+print(input_dir, output_dir)
 assert len(input_dir) == len(output_dir), "Config Error"
 
-os.makedirs("./tmp", exist_ok=True)
+shutil.rmtree("./tmp")
+os.mkdir("./tmp")
 
 scale_percent = args.scale_percent # percent of original size
 
