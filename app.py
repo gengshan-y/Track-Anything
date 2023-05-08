@@ -395,8 +395,7 @@ for line in config:
 
 assert len(input_dir) == len(output_dir), "Config Error"
 
-shutil.rmtree("./tmp")
-os.mkdir("./tmp")
+os.makedirs("./tmp", exist_ok=True)
 
 scale_percent = args.scale_percent # percent of original size
 

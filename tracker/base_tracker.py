@@ -16,7 +16,7 @@ from tracker.util.range_transform import im_normalization
 from tools.painter import mask_painter
 from tools.base_segmenter import BaseSegmenter
 from torchvision.transforms import Resize
-import progressbar
+#import progressbar
 
 
 class BaseTracker:
@@ -185,7 +185,8 @@ if __name__ == '__main__':
     if not os.path.exists(save_path):
         os.mkdir(save_path)
     # save
-    for painted_frame in progressbar.progressbar(painted_frames):
+    for painted_frame in painted_frames:
+    #for painted_frame in progressbar.progressbar(painted_frames):
         painted_frame = Image.fromarray(painted_frame)
         painted_frame.save(f'{save_path}/{ti:05d}.png')
 
