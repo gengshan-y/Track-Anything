@@ -6,11 +6,13 @@ import cv2
 import numpy as np
 import os
 import sys
+import pdb
 
-sys.path.append(sys.path[0] + "/tracker")
-sys.path.append(sys.path[0] + "/tracker/model")
+sys.path.insert(0, os.path.join(os.path.dirname(__file__)) + "/")
+sys.path.insert(0, os.path.join(os.path.dirname(__file__)) + "/tracker")
+sys.path.insert(0, os.path.join(os.path.dirname(__file__)) + "/tracker/model")
 from track_anything import TrackingAnything
-from track_anything import parse_augment
+from track_anything import parse_argument
 import requests
 import json
 import torchvision
@@ -20,6 +22,7 @@ import psutil
 import time
 import uuid
 import shutil
+import imageio
 from tqdm import tqdm
 
 try:
@@ -85,7 +88,7 @@ def get_prompt(click_state, click_input):
 
 
 # extract frames from upload video
-def get_frames_from_video(video_input, video_state):
+def get_frames_from_video(video_input, video_state, model, videos):
     """
     Args:
         video_path:str
@@ -136,7 +139,7 @@ def get_frames_from_video(video_input, video_state):
         "fps": fps,
         "input": videos[id]["input"],
         "output": videos[id]["output"],
-        "scale_percent": scale_percent,
+        "scale_percent": 50,
     }
     model.samcontroler.sam_controler.reset_image()
     model.samcontroler.sam_controler.set_image(video_state["origin_images"][0])
@@ -159,33 +162,9 @@ def run_example(example):
     return video_input
 
 
-# get the select frame from gradio slider
-def select_template(ideo_state, interactive_state):
-
-    # images = video_state[1]
-    video_state["select_frame_number"] = 0
-
-    # once select a new template frame, set the image in sam
-
-    model.samcontroler.sam_controler.reset_image()
-    model.samcontroler.sam_controler.set_image(video_state["origin_images"][0])
-
-    # update the masks when select a new template frame
-    # if video_state["masks"][image_selection_slider] is not None:
-    # video_state["painted_images"][image_selection_slider] = mask_painter(video_state["origin_images"][image_selection_slider], video_state["masks"][image_selection_slider])
-    operation_log = [("", ""), ("", "Normal")]
-
-    return (
-        video_state["painted_images"][0],
-        video_state,
-        interactive_state,
-        operation_log,
-    )
-
-
 # use sam to get the mask
 def sam_refine(
-    video_state, point_prompt, click_state, interactive_state, evt: gr.SelectData
+    video_state, point_prompt, click_state, interactive_state, evt: gr.SelectData, model
 ):
     """
     Args:
@@ -283,7 +262,7 @@ def show_mask(video_state, interactive_state, mask_dropdown):
 
 
 # tracking vos
-def vos_tracking_video(video_state, interactive_state, mask_dropdown):
+def vos_tracking_video(video_state, interactive_state, mask_dropdown, model, root_dir):
     operation_log = [("", ""), ("", "Normal")]
     model.xmem.clear_memory()
     if interactive_state["track_end_number"]:
@@ -372,11 +351,12 @@ def vos_tracking_video(video_state, interactive_state, mask_dropdown):
 
     video_output = generate_video_from_frames(
         video_state["painted_images"],
-        output_path="./%s/result/track/%s"%(root_dir,video_state["video_name"]),
+        output_path="./%s/result/track/%s" % (root_dir, video_state["video_name"]),
         fps=fps,
     )  # import video_input to name the output video
     interactive_state["inference_times"] += 1
 
+    os.makedirs(video_state["output"], exist_ok=True)
     shutil.copy(video_output, "%s/vis.mp4" % (video_state["output"]))
 
     print(
@@ -411,7 +391,7 @@ def vos_tracking_video(video_state, interactive_state, mask_dropdown):
 
 
 # generate video after vos inference
-def generate_video_from_frames(frames, output_path, fps=30):
+def generate_video_from_frames(frames, output_path, fps=10):
     """
     Generates a video from a list of frames.
 
@@ -431,7 +411,8 @@ def generate_video_from_frames(frames, output_path, fps=30):
     frames = torch.from_numpy(np.asarray(frames))
     if not os.path.exists(os.path.dirname(output_path)):
         os.makedirs(os.path.dirname(output_path))
-    torchvision.io.write_video(output_path, frames, fps=fps, video_codec="libx264")
+    # torchvision.io.write_video(output_path, frames, fps=fps, video_codec="libx264")
+    imageio.mimsave(output_path, frames, fps=fps)
     return output_path
 
 
@@ -457,249 +438,100 @@ def isImageFile(str):
         return False
 
 
-# args, defined in track_anything.py
-args = parse_augment()
+def track_anything_interface(vidname):
+    # args, defined in track_anything.py
+    args = parse_argument()
 
-# check and download checkpoints if needed
-SAM_checkpoint_dict = {
-    "vit_h": "sam_vit_h_4b8939.pth",
-    "vit_l": "sam_vit_l_0b3195.pth",
-    "vit_b": "sam_vit_b_01ec64.pth",
-}
-SAM_checkpoint_url_dict = {
-    "vit_h": "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth",
-    "vit_l": "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_l_0b3195.pth",
-    "vit_b": "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth",
-}
-sam_checkpoint = SAM_checkpoint_dict[args.sam_model_type]
-sam_checkpoint_url = SAM_checkpoint_url_dict[args.sam_model_type]
-xmem_checkpoint = "XMem-s012.pth"
-xmem_checkpoint_url = (
-    "https://github.com/hkchengrex/XMem/releases/download/v1.0/XMem-s012.pth"
-)
-e2fgvi_checkpoint = "E2FGVI-HQ-CVPR22.pth"
-e2fgvi_checkpoint_id = "10wGdKSUOie0XmCr8SQ2A2FeDe-mfn5w3"
+    # check and download checkpoints if needed
+    SAM_checkpoint_dict = {
+        "vit_h": "sam_vit_h_4b8939.pth",
+        "vit_l": "sam_vit_l_0b3195.pth",
+        "vit_b": "sam_vit_b_01ec64.pth",
+    }
+    SAM_checkpoint_url_dict = {
+        "vit_h": "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth",
+        "vit_l": "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_l_0b3195.pth",
+        "vit_b": "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth",
+    }
+    sam_checkpoint = SAM_checkpoint_dict[args.sam_model_type]
+    sam_checkpoint_url = SAM_checkpoint_url_dict[args.sam_model_type]
+    xmem_checkpoint = "XMem-s012.pth"
+    xmem_checkpoint_url = (
+        "https://github.com/hkchengrex/XMem/releases/download/v1.0/XMem-s012.pth"
+    )
+    e2fgvi_checkpoint = "E2FGVI-HQ-CVPR22.pth"
+    e2fgvi_checkpoint_id = "10wGdKSUOie0XmCr8SQ2A2FeDe-mfn5w3"
 
-root_dir = "./preprocess/third_party/Track-Anything/"
-folder = "%s/checkpoints" % root_dir
-SAM_checkpoint = download_checkpoint(sam_checkpoint_url, folder, sam_checkpoint)
-xmem_checkpoint = download_checkpoint(xmem_checkpoint_url, folder, xmem_checkpoint)
-e2fgvi_checkpoint = download_checkpoint_from_google_drive(
-    e2fgvi_checkpoint_id, folder, e2fgvi_checkpoint
-)
-# args.port = 12212
-# args.device = "cuda:1"
-# args.mask_save = True
-
-# initialize sam, xmem, e2fgvi models
-model = TrackingAnything(SAM_checkpoint, xmem_checkpoint, e2fgvi_checkpoint, args)
-
-
-input_dir, output_dir, uuids = [], [], []
-config = configparser.RawConfigParser()
-config.read("database/configs/%s.config" % args.config)
-for vidid in range(len(config.sections()) - 1):
-    img_path = config.get("data_%d" % vidid, "img_path")
-    input_dir.append(img_path)
-    output_dir.append(img_path.replace("JPEGImages", "Annotations"))
-
-print(input_dir, output_dir)
-assert len(input_dir) == len(output_dir), "Config Error"
-
-tmp_dir = "./%s/tmp" % root_dir
-if os.path.exists(tmp_dir):
-    shutil.rmtree(tmp_dir)
-os.mkdir(tmp_dir)
-
-scale_percent = args.scale_percent  # percent of original size
-
-for path in tqdm(input_dir):
-    frames = []
-    id = str(uuid.uuid4())
-    uuids.append(id)
-    for file in sorted(os.listdir(path)):
-        if isImageFile(file):
-            frame = cv2.imread(path + "/" + file)
-            width = int(frame.shape[1] * scale_percent / 100)
-            height = int(frame.shape[0] * scale_percent / 100)
-            dim = (width, height)
-
-            # resize image
-            resized = cv2.resize(frame, dim, interpolation=cv2.INTER_AREA)
-
-            frames.append(cv2.cvtColor(resized, cv2.COLOR_BGR2RGB))
-
-    frames = torch.from_numpy(np.asarray(frames))
-    generate_video_from_frames(frames, "%s/%s.mp4" % (tmp_dir, id))
-
-videos = {}
-for id, input, output in zip(uuids, input_dir, output_dir):
-    videos[id] = {"input": input, "output": output}
-
-with gr.Blocks() as iface:
-    """
-    state for
-    """
-    click_state = gr.State([[], []])
-    interactive_state = gr.State(
-        {
-            "inference_times": 0,
-            "negative_click_times": 0,
-            "positive_click_times": 0,
-            "mask_save": args.mask_save,
-            "multi_mask": {"mask_names": [], "masks": []},
-            "track_end_number": None,
-            "resize_ratio": 1,
-        }
+    root_dir = "./preprocess/third_party/Track-Anything/"
+    folder = "%s/checkpoints" % root_dir
+    SAM_checkpoint = download_checkpoint(sam_checkpoint_url, folder, sam_checkpoint)
+    xmem_checkpoint = download_checkpoint(xmem_checkpoint_url, folder, xmem_checkpoint)
+    e2fgvi_checkpoint = download_checkpoint_from_google_drive(
+        e2fgvi_checkpoint_id, folder, e2fgvi_checkpoint
     )
 
-    video_state = gr.State(
-        {
-            "user_name": "",
-            "video_name": "",
-            "origin_images": None,
-            "painted_images": None,
-            "masks": None,
-            "inpaint_masks": None,
-            "logits": None,
-            "select_frame_number": 0,
-            "fps": 30,
-        }
-    )
+    # initialize sam, xmem, e2fgvi models
+    model = TrackingAnything(SAM_checkpoint, xmem_checkpoint, e2fgvi_checkpoint, args)
 
-    def exit_gradio():
-        os._exit(0)
+    input_dir, output_dir, uuids = [], [], []
+    config = configparser.RawConfigParser()
+    config.read("database/configs/%s.config" % vidname)
+    for vidid in range(len(config.sections()) - 1):
+        img_path = config.get("data_%d" % vidid, "img_path")
+        input_dir.append(img_path)
+        output_dir.append(img_path.replace("JPEGImages", "Annotations"))
 
-    with gr.Row():
+    print(input_dir, output_dir)
+    assert len(input_dir) == len(output_dir), "Config Error"
 
-        # for user video input
-        with gr.Column():
-            with gr.Row():
-                video_input = gr.Video()
+    tmp_dir = "./%s/tmp" % root_dir
+    if os.path.exists(tmp_dir):
+        shutil.rmtree(tmp_dir)
+    os.mkdir(tmp_dir)
 
-            with gr.Row():
-                # put the template frame under the radio button
-                with gr.Column():
-                    # extract frames
-                    with gr.Column():
-                        extract_frames_button = gr.Button(
-                            value="Load Video", interactive=True, variant="primary"
-                        )
+    scale_percent = 50  # percent of original size
 
-                    # click points settins, negative or positive, mode continuous or single
-                    with gr.Row():
-                        with gr.Row():
-                            point_prompt = gr.Radio(
-                                choices=["Positive", "Negative"],
-                                value="Positive",
-                                label="Point Prompt",
-                                interactive=True,
-                                visible=False,
-                            )
-                            Add_mask_button = gr.Button(
-                                value="Add Mask", interactive=True, visible=False
-                            )
-                            remove_mask_button = gr.Button(
-                                value="Remove Mask", interactive=True, visible=False
-                            )
-                            clear_button_click = gr.Button(
-                                value="Clear Clicks", interactive=True, visible=False
-                            ).style(height=160)
-                    template_frame = gr.Image(
-                        type="pil",
-                        interactive=True,
-                        elem_id="template_frame",
-                        visible=False,
-                    ).style(height=360)
+    for path in tqdm(input_dir):
+        frames = []
+        id = str(uuid.uuid4())
+        uuids.append(id)
+        for file in sorted(os.listdir(path)):
+            if isImageFile(file):
+                frame = cv2.imread(path + "/" + file)
+                width = int(frame.shape[1] * scale_percent / 100)
+                height = int(frame.shape[0] * scale_percent / 100)
+                dim = (width, height)
 
-                with gr.Column():
-                    run_status = gr.HighlightedText(
-                        value=[
-                            ("Text", "Error"),
-                            ("to be", "Label 2"),
-                            ("highlighted", "Label 3"),
-                        ],
-                        visible=False,
-                    )
-                    mask_dropdown = gr.Dropdown(
-                        multiselect=True,
-                        value=[],
-                        label="Mask selection",
-                        info=".",
-                        visible=False,
-                    )
-                    video_output = gr.Video(autosize=True, visible=False).style(
-                        height=360
-                    )
-                    with gr.Row():
-                        tracking_video_predict_button = gr.Button(
-                            value="Tracking", visible=False
-                        )
-                        exit = gr.Button(value="Exit", visible=True)
+                # resize image
+                resized = cv2.resize(frame, dim, interpolation=cv2.INTER_AREA)
 
-    # first step: get the video information
-    extract_frames_button.click(
-        fn=get_frames_from_video,
-        inputs=[video_input, video_state],
-        outputs=[
-            video_state,
-            template_frame,
-            point_prompt,
-            clear_button_click,
-            Add_mask_button,
-            template_frame,
-            tracking_video_predict_button,
-            video_output,
-            mask_dropdown,
-            remove_mask_button,
-            run_status,
-        ],
-    )
+                frames.append(cv2.cvtColor(resized, cv2.COLOR_BGR2RGB))
 
-    # click select image to get mask using sam
-    template_frame.select(
-        fn=sam_refine,
-        inputs=[video_state, point_prompt, click_state, interactive_state],
-        outputs=[template_frame, video_state, interactive_state, run_status],
-    )
+        frames = torch.from_numpy(np.asarray(frames))
+        generate_video_from_frames(frames, "%s/%s.mp4" % (tmp_dir, id))
 
-    # add different mask
-    Add_mask_button.click(
-        fn=add_multi_mask,
-        inputs=[video_state, interactive_state, mask_dropdown],
-        outputs=[
-            interactive_state,
-            mask_dropdown,
-            template_frame,
-            click_state,
-            run_status,
-        ],
-    )
+    videos = {}
+    for id, input, output in zip(uuids, input_dir, output_dir):
+        videos[id] = {"input": input, "output": output}
 
-    remove_mask_button.click(
-        fn=remove_multi_mask,
-        inputs=[interactive_state, mask_dropdown],
-        outputs=[interactive_state, mask_dropdown, run_status],
-    )
+    with gr.Blocks() as iface:
+        """
+        state for
+        """
+        click_state = gr.State([[], []])
+        interactive_state = gr.State(
+            {
+                "inference_times": 0,
+                "negative_click_times": 0,
+                "positive_click_times": 0,
+                "mask_save": args.mask_save,
+                "multi_mask": {"mask_names": [], "masks": []},
+                "track_end_number": None,
+                "resize_ratio": 1,
+            }
+        )
 
-    # tracking video from select image and mask
-    tracking_video_predict_button.click(
-        fn=vos_tracking_video,
-        inputs=[video_state, interactive_state, mask_dropdown],
-        outputs=[video_output, video_state, interactive_state, run_status],
-    )
-
-    exit.click(fn=exit_gradio, inputs=[], outputs=None)
-    # click to get mask
-    mask_dropdown.change(
-        fn=show_mask,
-        inputs=[video_state, interactive_state, mask_dropdown],
-        outputs=[template_frame, run_status],
-    )
-
-    # clear input
-    video_input.clear(
-        lambda: (
+        video_state = gr.State(
             {
                 "user_name": "",
                 "video_name": "",
@@ -710,83 +542,246 @@ with gr.Blocks() as iface:
                 "logits": None,
                 "select_frame_number": 0,
                 "fps": 30,
-            },
-            {
-                "inference_times": 0,
-                "negative_click_times": 0,
-                "positive_click_times": 0,
-                "mask_save": args.mask_save,
-                "multi_mask": {"mask_names": [], "masks": []},
-                "track_end_number": 0,
-                "resize_ratio": 1,
-            },
-            [[], []],
-            None,
-            None,
-            gr.update(visible=False),
-            gr.update(visible=False),
-            gr.update(visible=False),
-            gr.update(visible=False),
-            gr.update(visible=False),
-            gr.update(visible=False),
-            gr.update(visible=False),
-            gr.update(visible=False),
-            gr.update(visible=False),
-            gr.update(visible=False, value=[]),
-            gr.update(visible=False),
-            gr.update(visible=False),
-            gr.update(visible=False),
-        ),
-        [],
-        [
-            video_state,
-            interactive_state,
-            click_state,
-            video_output,
-            template_frame,
-            tracking_video_predict_button,
-            point_prompt,
-            clear_button_click,
-            Add_mask_button,
-            template_frame,
-            tracking_video_predict_button,
-            video_output,
-            mask_dropdown,
-            remove_mask_button,
-            run_status,
-        ],
-        queue=False,
-        show_progress=False,
-    )
+            }
+        )
 
-    # points clear
-    clear_button_click.click(
-        fn=clear_click,
-        inputs=[
-            video_state,
-            click_state,
-        ],
-        outputs=[template_frame, click_state, run_status],
-    )
-    # set example
-    gr.Markdown("##  Videos")
-    gr.Examples(
-        examples=[
-            os.path.join(tmp_dir, test_sample) for test_sample in os.listdir(tmp_dir)
-        ],
-        fn=run_example,
-        inputs=[video_input],
-        outputs=[video_input],
-        # cache_examples=True,
-    )
+        def exit_gradio():
+            # os._exit(0)
+            # pdb.set_trace()
+            # iface.close()
+            print("Use Ctrl+C to continue the program.")
+            print("TODO: implement exit function. Currently, iface.close() hangs")
+            return
 
-    iface.queue(concurrency_count=1)
-    iface.launch(
-        debug=True,
-        enable_queue=True,
-        server_port=args.port,
-        server_name="0.0.0.0",
-        share=True,
-    )
-    # iface.launch(debug=True, enable_queue=True)
-    iface.close()
+        with gr.Row():
+
+            # for user video input
+            with gr.Column():
+                with gr.Row():
+                    video_input = gr.Video()
+
+                with gr.Row():
+                    # put the template frame under the radio button
+                    with gr.Column():
+                        # extract frames
+                        with gr.Column():
+                            extract_frames_button = gr.Button(
+                                value="Load Video", interactive=True, variant="primary"
+                            )
+
+                        # click points settins, negative or positive, mode continuous or single
+                        with gr.Row():
+                            with gr.Row():
+                                point_prompt = gr.Radio(
+                                    choices=["Positive", "Negative"],
+                                    value="Positive",
+                                    label="Point Prompt",
+                                    interactive=True,
+                                    visible=False,
+                                )
+                                Add_mask_button = gr.Button(
+                                    value="Add Mask", interactive=True, visible=False
+                                )
+                                remove_mask_button = gr.Button(
+                                    value="Remove Mask", interactive=True, visible=False
+                                )
+                                clear_button_click = gr.Button(
+                                    value="Clear Clicks",
+                                    interactive=True,
+                                    visible=False,
+                                ).style(height=160)
+                        template_frame = gr.Image(
+                            type="pil",
+                            interactive=True,
+                            elem_id="template_frame",
+                            visible=False,
+                        ).style(height=360)
+
+                    with gr.Column():
+                        run_status = gr.HighlightedText(
+                            value=[
+                                ("Text", "Error"),
+                                ("to be", "Label 2"),
+                                ("highlighted", "Label 3"),
+                            ],
+                            visible=False,
+                        )
+                        mask_dropdown = gr.Dropdown(
+                            multiselect=True,
+                            value=[],
+                            label="Mask selection",
+                            info=".",
+                            visible=False,
+                        )
+                        video_output = gr.Video(autosize=True, visible=False).style(
+                            height=360
+                        )
+                        with gr.Row():
+                            tracking_video_predict_button = gr.Button(
+                                value="Tracking", visible=False
+                            )
+                            exit = gr.Button(value="Exit", visible=True)
+
+        # first step: get the video information
+        extract_frames_button.click(
+            fn=lambda x, y: get_frames_from_video(x, y, model, videos),
+            inputs=[video_input, video_state],
+            outputs=[
+                video_state,
+                template_frame,
+                point_prompt,
+                clear_button_click,
+                Add_mask_button,
+                template_frame,
+                tracking_video_predict_button,
+                video_output,
+                mask_dropdown,
+                remove_mask_button,
+                run_status,
+            ],
+        )
+
+        def sam_refine_wrapper(x1, x2, x3, x4, evt: gr.SelectData):
+            return sam_refine(x1, x2, x3, x4, evt, model)
+
+        # click select image to get mask using sam
+        template_frame.select(
+            fn=sam_refine_wrapper,
+            inputs=[video_state, point_prompt, click_state, interactive_state],
+            outputs=[template_frame, video_state, interactive_state, run_status],
+        )
+
+        # add different mask
+        Add_mask_button.click(
+            fn=add_multi_mask,
+            inputs=[video_state, interactive_state, mask_dropdown],
+            outputs=[
+                interactive_state,
+                mask_dropdown,
+                template_frame,
+                click_state,
+                run_status,
+            ],
+        )
+
+        remove_mask_button.click(
+            fn=remove_multi_mask,
+            inputs=[interactive_state, mask_dropdown],
+            outputs=[interactive_state, mask_dropdown, run_status],
+        )
+
+        # tracking video from select image and mask
+        tracking_video_predict_button.click(
+            fn=lambda x, y, z: vos_tracking_video(x, y, z, model, root_dir),
+            inputs=[video_state, interactive_state, mask_dropdown],
+            outputs=[video_output, video_state, interactive_state, run_status],
+        )
+
+        exit.click(fn=exit_gradio, inputs=[], outputs=None)
+        # click to get mask
+        mask_dropdown.change(
+            fn=show_mask,
+            inputs=[video_state, interactive_state, mask_dropdown],
+            outputs=[template_frame, run_status],
+        )
+
+        # clear input
+        video_input.clear(
+            lambda: (
+                {
+                    "user_name": "",
+                    "video_name": "",
+                    "origin_images": None,
+                    "painted_images": None,
+                    "masks": None,
+                    "inpaint_masks": None,
+                    "logits": None,
+                    "select_frame_number": 0,
+                    "fps": 30,
+                },
+                {
+                    "inference_times": 0,
+                    "negative_click_times": 0,
+                    "positive_click_times": 0,
+                    "mask_save": args.mask_save,
+                    "multi_mask": {"mask_names": [], "masks": []},
+                    "track_end_number": 0,
+                    "resize_ratio": 1,
+                },
+                [[], []],
+                None,
+                None,
+                gr.update(visible=False),
+                gr.update(visible=False),
+                gr.update(visible=False),
+                gr.update(visible=False),
+                gr.update(visible=False),
+                gr.update(visible=False),
+                gr.update(visible=False),
+                gr.update(visible=False),
+                gr.update(visible=False),
+                gr.update(visible=False, value=[]),
+                gr.update(visible=False),
+                gr.update(visible=False),
+                gr.update(visible=False),
+            ),
+            [],
+            [
+                video_state,
+                interactive_state,
+                click_state,
+                video_output,
+                template_frame,
+                tracking_video_predict_button,
+                point_prompt,
+                clear_button_click,
+                Add_mask_button,
+                template_frame,
+                tracking_video_predict_button,
+                video_output,
+                mask_dropdown,
+                remove_mask_button,
+                run_status,
+            ],
+            queue=False,
+            show_progress=False,
+        )
+
+        # points clear
+        clear_button_click.click(
+            fn=clear_click,
+            inputs=[
+                video_state,
+                click_state,
+            ],
+            outputs=[template_frame, click_state, run_status],
+        )
+        # set example
+        gr.Markdown("##  Videos")
+        gr.Examples(
+            examples=[
+                os.path.join(tmp_dir, test_sample)
+                for test_sample in os.listdir(tmp_dir)
+            ],
+            fn=run_example,
+            inputs=[video_input],
+            outputs=[video_input],
+            # cache_examples=True,
+        )
+
+        # iface.queue(concurrency_count=1)
+        iface.launch(
+            # debug=True,
+            # enable_queue=True,
+            # server_port=args.port,
+            # server_name="0.0.0.0",
+            # prevent_thread_lock=True,
+            share=True,
+        )
+        # iface.launch(debug=True, enable_queue=True)
+        # iface.close()
+
+
+if __name__ == "__main__":
+    vidname = sys.argv[1]
+    track_anything_interface(vidname)
