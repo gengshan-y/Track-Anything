@@ -1,3 +1,4 @@
+# python preprocess/third_party/Track-Anything/app.py cat-pikachu-0
 import gradio as gr
 import argparse
 import configparser
@@ -97,7 +98,7 @@ def get_frames_from_video(video_input, video_state, model, videos):
         [[0:nearest_frame], [nearest_frame:], nearest_frame]
     """
     video_path = video_input
-    id = video_input.split("/")[-1].strip(".mp4")
+    id = video_input.split("/")[-1][:-4] # remove .mp4
 
     frames = []
     user_name = time.time()
@@ -478,6 +479,7 @@ def track_anything_interface(vidname):
     config.read("database/configs/%s.config" % vidname)
     for vidid in range(len(config.sections()) - 1):
         img_path = config.get("data_%d" % vidid, "img_path")
+        print("adding %s" % img_path)
         input_dir.append(img_path)
         output_dir.append(img_path.replace("JPEGImages", "Annotations"))
 
