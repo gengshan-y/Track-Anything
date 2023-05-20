@@ -35,6 +35,8 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
+os.environ["GRADIO_TEMP_DIR"] = "./tmp"
+
 # download checkpoints
 def download_checkpoint(url, folder, filename):
     os.makedirs(folder, exist_ok=True)
@@ -99,7 +101,8 @@ def get_frames_from_video(video_input, video_state, model, videos):
     """
     video_path = video_input
     id = video_input.split("/")[-1][:-4] # remove .mp4
-
+    scale_percent = video_state["scale_percent"]
+    video_backend = video_state["video_backend"]
     frames = []
     user_name = time.time()
     operation_log = [("", ""), ("", "Normal")]
@@ -140,7 +143,8 @@ def get_frames_from_video(video_input, video_state, model, videos):
         "fps": fps,
         "input": videos[id]["input"],
         "output": videos[id]["output"],
-        "scale_percent": 50,
+        "scale_percent" : scale_percent,
+        "video_backend" : video_backend,
     }
     model.samcontroler.sam_controler.reset_image()
     model.samcontroler.sam_controler.set_image(video_state["origin_images"][0])
@@ -161,7 +165,6 @@ def get_frames_from_video(video_input, video_state, model, videos):
 
 def run_example(example):
     return video_input
-
 
 # use sam to get the mask
 def sam_refine(
@@ -354,6 +357,7 @@ def vos_tracking_video(video_state, interactive_state, mask_dropdown, model, roo
         video_state["painted_images"],
         output_path="./%s/result/track/%s" % (root_dir, video_state["video_name"]),
         fps=fps,
+        video_backend=video_state["video_backend"]
     )  # import video_input to name the output video
     interactive_state["inference_times"] += 1
 
@@ -392,7 +396,7 @@ def vos_tracking_video(video_state, interactive_state, mask_dropdown, model, roo
 
 
 # generate video after vos inference
-def generate_video_from_frames(frames, output_path, fps=10):
+def generate_video_from_frames(frames, output_path, fps=10, video_backend="torchvision"):
     """
     Generates a video from a list of frames.
 
@@ -412,8 +416,14 @@ def generate_video_from_frames(frames, output_path, fps=10):
     frames = torch.from_numpy(np.asarray(frames))
     if not os.path.exists(os.path.dirname(output_path)):
         os.makedirs(os.path.dirname(output_path))
-    # torchvision.io.write_video(output_path, frames, fps=fps, video_codec="libx264")
-    imageio.mimsave(output_path, frames, fps=fps)
+        
+    if video_backend == "torchvision":
+        torchvision.io.write_video(output_path, frames, fps=fps, video_codec="libx264")
+    elif video_backend == "imageio":
+        imageio.mimsave(output_path, frames, fps=fps)
+    else:
+        assert False, "Invalid Video Back End. Select between torchvision and imageio"
+        
     return output_path
 
 
@@ -491,8 +501,9 @@ def track_anything_interface(vidname):
         shutil.rmtree(tmp_dir)
     os.mkdir(tmp_dir)
 
-    scale_percent = 50  # percent of original size
-
+    scale_percent = args.scale_percent  # percent of original size
+    video_backend = args.video_backend 
+    
     for path in tqdm(input_dir):
         frames = []
         id = str(uuid.uuid4())
@@ -510,12 +521,26 @@ def track_anything_interface(vidname):
                 frames.append(cv2.cvtColor(resized, cv2.COLOR_BGR2RGB))
 
         frames = torch.from_numpy(np.asarray(frames))
-        generate_video_from_frames(frames, "%s/%s.mp4" % (tmp_dir, id))
+        generate_video_from_frames(frames, "%s/%s.mp4" % (tmp_dir, id), video_backend=video_backend)
 
     videos = {}
     for id, input, output in zip(uuids, input_dir, output_dir):
         videos[id] = {"input": input, "output": output}
 
+    instructions = """
+                    ## Lab4D Tracking Module Instructions
+                    1. Click on one of the videos from the bottom carousel.
+                    2. Click **Load Video**.
+                    3. Click on the instance you wish to segment in the bottom pane.
+                    4. Click **Add Mask**
+                    5. Repeat steps 3-4 for all instances in the image
+                    6. Click **Tracking**. This will automatically run XMEM and save the output
+                    7. To process another video from the bottom carousel, click **Clear Clicks** and **Remove Masks** and repeat steps 2-6.
+                    8. To exit the Gradio webapp, click **Exit** (or Ctrl-C).
+                    
+                    If you encounter an error, re-select the video from the bottom carousel and click **Load Video**.
+                   """
+    
     with gr.Blocks() as iface:
         """
         state for
@@ -544,6 +569,8 @@ def track_anything_interface(vidname):
                 "logits": None,
                 "select_frame_number": 0,
                 "fps": 30,
+                "scale_percent" : scale_percent,
+                "video_backend" : video_backend
             }
         )
 
@@ -555,6 +582,7 @@ def track_anything_interface(vidname):
             print("TODO: implement exit function. Currently, iface.close() hangs")
             return
 
+        gr.Markdown(instructions)
         with gr.Row():
 
             # for user video input
