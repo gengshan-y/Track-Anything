@@ -78,6 +78,7 @@ def parse_argument():
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--mask_save", default=True)
     parser.add_argument("--scale_percent", default=50, type=int)
+    parser.add_argument("--video_backend", default="torchvision")
 
     args = parser.parse_args([])  # avoid reading cmd line arguments
 
