@@ -46,7 +46,6 @@ class TrackingAnything:
     #     return mask, logit, painted_image
 
     def generator(self, images: list, template_mask: np.ndarray):
-
         masks = []
         logits = []
         painted_images = []
@@ -78,7 +77,8 @@ def parse_argument():
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--mask_save", default=True)
     parser.add_argument("--scale_percent", default=50, type=int)
-    parser.add_argument("--video_backend", default="torchvision")
+    # parser.add_argument("--video_backend", default="torchvision")
+    parser.add_argument("--video_backend", default="imageio")
 
     args = parser.parse_args([])  # avoid reading cmd line arguments
 
