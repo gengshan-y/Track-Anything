@@ -9,13 +9,14 @@ import argparse
 
 
 class TrackingAnything:
-    def __init__(self, sam_checkpoint, xmem_checkpoint, e2fgvi_checkpoint, args):
+    def __init__(self, sam_checkpoint, gdino_checkpoint, xmem_checkpoint, e2fgvi_checkpoint, args):
         self.args = args
         self.sam_checkpoint = sam_checkpoint
         self.xmem_checkpoint = xmem_checkpoint
         self.e2fgvi_checkpoint = e2fgvi_checkpoint
+        self.gdino_checkpoint = gdino_checkpoint
         self.samcontroler = SamControler(
-            self.sam_checkpoint, args.sam_model_type, args.device
+            self.sam_checkpoint, self.gdino_checkpoint, args.sam_model_type, args.device
         )
         self.xmem = BaseTracker(self.xmem_checkpoint, device=args.device)
         self.baseinpainter = BaseInpainter(self.e2fgvi_checkpoint, args.device)
@@ -41,6 +42,14 @@ class TrackingAnything:
         )
         return mask, logit, painted_image
 
+    def text_prompt(
+        self, image: np.ndarray, text_prompt: str, box_threshold=0.35, text_threshold=0.25,multimask=True
+    ):
+        mask, logit, painted_image = self.samcontroler.text_prompt(
+            image, text_prompt, box_threshold, text_threshold, multimask
+        )
+        return mask, logit, painted_image
+    
     # def interact(self, image: np.ndarray, same_image_flag: bool, points:np.ndarray, labels: np.ndarray, logits: np.ndarray=None, multimask=True):
     #     mask, logit, painted_image = self.samcontroler.interact_loop(image, same_image_flag, points, labels, logits, multimask)
     #     return mask, logit, painted_image
@@ -76,8 +85,11 @@ def parse_argument():
     )
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--mask_save", default=True)
-    parser.add_argument("--scale_percent", default=50, type=int)
-    # parser.add_argument("--video_backend", default="torchvision")
+    parser.add_argument("--scale_percent", default=0.25, type=float)
+    #parser.add_argument("--box_threshold", default=0.35, type=float)
+    #parser.add_argument("--text_threshold", default=0.25, type=float)
+
+    #parser.add_argument("--video_backend", default="torchvision")
     parser.add_argument("--video_backend", default="imageio")
 
     args = parser.parse_args([])  # avoid reading cmd line arguments
