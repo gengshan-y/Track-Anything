@@ -57,7 +57,7 @@ class BaseSegmenter:
         whem mask_outputs=True, mask_input=logits[np.argmax(scores), :, :][None, :, :]
         """
         assert self.embedded, 'prediction is called before set_image (feature embedding).'
-        assert mode in ['point', 'mask', 'both'], 'mode must be point, mask, or both'
+        assert mode in ['point', 'mask', 'bbox', 'both'], 'mode must be point, mask, bbox, or both'
         
         if mode == 'point':
             masks, scores, logits = self.predictor.predict(point_coords=prompts['point_coords'], 
@@ -71,6 +71,14 @@ class BaseSegmenter:
                                 point_labels=prompts['point_labels'], 
                                 mask_input=prompts['mask_input'], 
                                 multimask_output=multimask)
+        elif mode == 'bbox':
+            transformed_boxes = self.predictor.transform.apply_boxes_torch(prompts["boxes"], prompts["shape"])
+            masks, scores, logits = self.predictor.predict_torch(
+                point_coords=None,
+                point_labels=None,
+                boxes=transformed_boxes,
+                multimask_output=False,
+            )
         else:
             raise("Not implement now!")
         # masks (n, h, w), scores (n,), logits (n, 256, 256)
