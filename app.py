@@ -26,6 +26,9 @@ import shutil
 import imageio
 from tqdm import tqdm
 
+from groundingdino.util.inference import load_model
+import cv2
+
 try:
     from mmcv.cnn import ConvModule
 except:
@@ -36,6 +39,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 os.environ["GRADIO_TEMP_DIR"] = "./tmp"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # download checkpoints
 def download_checkpoint(url, folder, filename):
@@ -54,6 +58,18 @@ def download_checkpoint(url, folder, filename):
 
     return filepath
 
+# download checkpoints
+def wget_checkpoint(url, folder, filename):
+    os.makedirs(folder, exist_ok=True)
+    filepath = os.path.join(folder, filename)
+
+    if not os.path.exists(filepath):
+        print("download checkpoints ......")
+        os.system("wget -qO {} {}".format(filepath, url))
+
+        print("download successfully!")
+
+    return filepath
 
 def download_checkpoint_from_google_drive(file_id, folder, filename):
     os.makedirs(folder, exist_ok=True)
@@ -101,7 +117,6 @@ def get_frames_from_video(video_input, video_state, model, videos):
     """
     video_path = video_input
     id = video_input.split("/")[-1][:-4] # remove .mp4
-    scale_percent = video_state["scale_percent"]
     video_backend = video_state["video_backend"]
     frames = []
     user_name = time.time()
@@ -129,7 +144,7 @@ def get_frames_from_video(video_input, video_state, model, videos):
                 break
     except (OSError, TypeError, ValueError, KeyError, SyntaxError) as e:
         print("read_frame_source:{} error. {}\n".format(video_path, str(e)))
-    image_size = (frames[0].shape[0], frames[0].shape[1])
+
     # initialize video_state
     video_state = {
         "user_name": user_name,
@@ -143,7 +158,7 @@ def get_frames_from_video(video_input, video_state, model, videos):
         "fps": fps,
         "input": videos[id]["input"],
         "output": videos[id]["output"],
-        "scale_percent" : scale_percent,
+        "original_size" : videos[id]["size"],
         "video_backend" : video_backend,
     }
     model.samcontroler.sam_controler.reset_image()
@@ -159,12 +174,36 @@ def get_frames_from_video(video_input, video_state, model, videos):
         gr.update(visible=True),
         gr.update(visible=True),
         gr.update(visible=True),
+        gr.update(visible=True),
+        gr.update(visible=True),
+        gr.update(visible=True),
         gr.update(visible=True, value=operation_log),
     )
 
 
 def run_example(example):
-    return video_input
+    return
+
+def get_text_prompt(text_prompt, video_state, interactive_state, model):
+    interactive_state["text_prompt"] = text_prompt
+
+    # prompt for sam model
+    model.samcontroler.sam_controler.reset_image()
+    model.samcontroler.sam_controler.set_image(
+        video_state["origin_images"][video_state["select_frame_number"]]
+    )
+    
+    mask, logit, painted_image = model.text_prompt(
+        image=video_state["origin_images"][video_state["select_frame_number"]],
+        text_prompt=text_prompt, box_threshold=float(interactive_state["box_threshold"]), text_threshold=float(interactive_state["box_threshold"]),
+    )
+  
+    video_state["masks"][video_state["select_frame_number"]] = mask
+    video_state["logits"][video_state["select_frame_number"]] = logit
+    video_state["painted_images"][video_state["select_frame_number"]] = painted_image
+    
+    operation_log = [("", ""), ("", "Normal")]
+    return painted_image, video_state, interactive_state, operation_log
 
 # use sam to get the mask
 def sam_refine(
@@ -188,18 +227,19 @@ def sam_refine(
     model.samcontroler.sam_controler.set_image(
         video_state["origin_images"][video_state["select_frame_number"]]
     )
+    
     prompt = get_prompt(click_state=click_state, click_input=coordinate)
-
     mask, logit, painted_image = model.first_frame_click(
         image=video_state["origin_images"][video_state["select_frame_number"]],
         points=np.array(prompt["input_point"]),
         labels=np.array(prompt["input_label"]),
         multimask=prompt["multimask_output"],
     )
+  
     video_state["masks"][video_state["select_frame_number"]] = mask
     video_state["logits"][video_state["select_frame_number"]] = logit
     video_state["painted_images"][video_state["select_frame_number"]] = painted_image
-
+        
     operation_log = [("", ""), ("", "Normal")]
     return painted_image, video_state, interactive_state, operation_log
 
@@ -337,12 +377,11 @@ def vos_tracking_video(video_state, interactive_state, mask_dropdown, model, roo
     for masks, painted_masks in zip(
         video_state["masks"], video_state["painted_images"]
     ):
-        width = int(masks.shape[1] * 100 / video_state["scale_percent"])
-        height = int(masks.shape[0] * 100 / video_state["scale_percent"])
+        width, height =  video_state["original_size"]
         dim = (width, height)
 
         # resize image
-        resized_mask = cv2.resize(masks, dim, interpolation=cv2.INTER_AREA)
+        resized_mask = cv2.resize(masks, dim, interpolation=cv2.INTER_NEAREST)
         resized_painted_mask = cv2.resize(
             painted_masks, dim, interpolation=cv2.INTER_AREA
         )
@@ -473,18 +512,23 @@ def track_anything_interface(vidname):
     e2fgvi_checkpoint = "E2FGVI-HQ-CVPR22.pth"
     e2fgvi_checkpoint_id = "10wGdKSUOie0XmCr8SQ2A2FeDe-mfn5w3"
 
+    gdino_checkpoint = "groundingdino_swint_ogc.pth"
+    gdino_checkpoint_url = "https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha/groundingdino_swint_ogc.pth"
+    
     root_dir = "./preprocess/third_party/Track-Anything/"
     folder = "%s/checkpoints" % root_dir
     SAM_checkpoint = download_checkpoint(sam_checkpoint_url, folder, sam_checkpoint)
+    gdino_checkpoint = wget_checkpoint(gdino_checkpoint_url, folder, gdino_checkpoint)
+    
     xmem_checkpoint = download_checkpoint(xmem_checkpoint_url, folder, xmem_checkpoint)
     e2fgvi_checkpoint = download_checkpoint_from_google_drive(
         e2fgvi_checkpoint_id, folder, e2fgvi_checkpoint
     )
 
     # initialize sam, xmem, e2fgvi models
-    model = TrackingAnything(SAM_checkpoint, xmem_checkpoint, e2fgvi_checkpoint, args)
+    model = TrackingAnything(SAM_checkpoint, gdino_checkpoint, xmem_checkpoint, e2fgvi_checkpoint, args)
 
-    input_dir, output_dir, uuids = [], [], []
+    input_dir, output_dir, uuids, size = [], [], [], []
     config = configparser.RawConfigParser()
     config.read("database/configs/%s.config" % vidname)
     for vidid in range(len(config.sections()) - 1):
@@ -501,9 +545,8 @@ def track_anything_interface(vidname):
         shutil.rmtree(tmp_dir)
     os.mkdir(tmp_dir)
 
-    scale_percent = args.scale_percent  # percent of original size
     video_backend = args.video_backend 
-    
+    original_size = (None, None)
     for path in tqdm(input_dir):
         frames = []
         id = str(uuid.uuid4())
@@ -511,9 +554,13 @@ def track_anything_interface(vidname):
         for file in sorted(os.listdir(path)):
             if isImageFile(file):
                 frame = cv2.imread(path + "/" + file)
-                width = int(frame.shape[1] * scale_percent / 100)
-                height = int(frame.shape[0] * scale_percent / 100)
-                dim = (width, height)
+                if len(frames)==0:
+                    original_size = (frame.shape[1], frame.shape[0])
+                    # make sure the total pixel is less than (800x800)
+                    scale_percent = np.sqrt(640000 / (original_size[0] * original_size[1]))
+                    width = int(frame.shape[1] * scale_percent)
+                    height = int(frame.shape[0] * scale_percent)
+                    dim = (width, height)
 
                 # resize image
                 resized = cv2.resize(frame, dim, interpolation=cv2.INTER_AREA)
@@ -522,21 +569,31 @@ def track_anything_interface(vidname):
 
         frames = torch.from_numpy(np.asarray(frames))
         generate_video_from_frames(frames, "%s/%s.mp4" % (tmp_dir, id), video_backend=video_backend)
-
+    
+    size.append(original_size)
+    
     videos = {}
-    for id, input, output in zip(uuids, input_dir, output_dir):
-        videos[id] = {"input": input, "output": output}
+    for id, input, output, osize in zip(uuids, input_dir, output_dir, size):
+        videos[id] = {"input": input, "output": output, "size" : osize}
 
     instructions = """
                     ## Lab4D Tracking Module Instructions
                     1. Click on one of the videos from the bottom carousel.
                     2. Click **Load Video**.
+                    
+                    ### Using Click Prompts
                     3. Click on the instance you wish to segment in the bottom pane.
                     4. Click **Add Mask**
                     5. Repeat steps 3-4 for all instances in the image
                     6. Click **Tracking**. This will automatically run XMEM and save the output
                     7. To process another video from the bottom carousel, click **Clear Clicks** and **Remove Masks** and repeat steps 2-6.
                     8. To exit the Gradio webapp, click **Exit** (or Ctrl-C).
+                    
+                    ### Using Text Prompts (We only support single instance segmentation)
+                    3. Type the name of the category you wish to segment. Press Enter on the keyboard.
+                    4. Click **Tracking**. This will automatically run XMEM and save the output
+                    5. To process another video from the bottom carousel, click **Clear Clicks** and **Remove Masks** and repeat steps 2-6.
+                    6. To exit the Gradio webapp, click **Exit** (or Ctrl-C).
                     
                     If you encounter an error, re-select the video from the bottom carousel and click **Load Video**.
                    """
@@ -548,6 +605,9 @@ def track_anything_interface(vidname):
         click_state = gr.State([[], []])
         interactive_state = gr.State(
             {
+                "text_prompt" : "",
+                "box_threshold" : 0.35, 
+                "text_threshold" : 0.25,
                 "inference_times": 0,
                 "negative_click_times": 0,
                 "positive_click_times": 0,
@@ -569,14 +629,13 @@ def track_anything_interface(vidname):
                 "logits": None,
                 "select_frame_number": 0,
                 "fps": 30,
-                "scale_percent" : scale_percent,
+                "original_size" : (None, None),
                 "video_backend" : video_backend
             }
         )
 
         def exit_gradio():
             # os._exit(0)
-            # pdb.set_trace()
             # iface.close()
             print("Use Ctrl+C to continue the program.")
             print("TODO: implement exit function. Currently, iface.close() hangs")
@@ -599,7 +658,14 @@ def track_anything_interface(vidname):
                                 value="Load Video", interactive=True, variant="primary"
                             )
 
-                        # click points settins, negative or positive, mode continuous or single
+                        with gr.Column():
+                            # click points settins, negative or positive, mode continuous or single
+                            text_prompt = gr.Textbox(label="Text Prompt", value="Sample Text Prompt (e.g. chair . person . dog .)", interactive=True, visible=False)
+
+                            with gr.Row():
+                                box_threshold = gr.Textbox(label="Box Threshold", value="0.35", interactive=True, visible=False)
+                                text_threshold = gr.Textbox(label="Text Threshold", value="0.25", interactive=True, visible=False)
+
                         with gr.Row():
                             with gr.Row():
                                 point_prompt = gr.Radio(
@@ -625,14 +691,11 @@ def track_anything_interface(vidname):
                             interactive=True,
                             elem_id="template_frame",
                             visible=False,
-                        ).style(height=360)
+                        ).style(height=335)
 
                     with gr.Column():
                         run_status = gr.HighlightedText(
                             value=[
-                                ("Text", "Error"),
-                                ("to be", "Label 2"),
-                                ("highlighted", "Label 3"),
                             ],
                             visible=False,
                         )
@@ -644,7 +707,7 @@ def track_anything_interface(vidname):
                             visible=False,
                         )
                         video_output = gr.Video(autosize=True, visible=False).style(
-                            height=360
+                            height=500
                         )
                         with gr.Row():
                             tracking_video_predict_button = gr.Button(
@@ -667,6 +730,9 @@ def track_anything_interface(vidname):
                 video_output,
                 mask_dropdown,
                 remove_mask_button,
+                text_prompt,
+                box_threshold,
+                text_threshold,
                 run_status,
             ],
         )
@@ -700,6 +766,33 @@ def track_anything_interface(vidname):
             outputs=[interactive_state, mask_dropdown, run_status],
         )
 
+        def get_text_prompt_wrapper(x1, x2, x3):
+            return get_text_prompt(x1, x2, x3, model)
+        
+        text_prompt.submit(fn=get_text_prompt_wrapper, 
+                           inputs=[text_prompt, video_state, interactive_state], 
+                           outputs=[template_frame, video_state, interactive_state, run_status])
+        
+        def get_box_threshold(box_threshold, interactive_state):
+            interactive_state["box_threshold"] = float(box_threshold)
+            
+            return interactive_state
+            
+        
+        box_threshold.change(fn=get_box_threshold, 
+                           inputs=[box_threshold, interactive_state], 
+                           outputs=[interactive_state])
+
+        def get_text_threshold(box_threshold, interactive_state):
+            interactive_state["text_threshold"] = float(box_threshold)
+            
+            return interactive_state
+            
+        
+        text_threshold.change(fn=get_text_threshold, 
+                           inputs=[box_threshold, interactive_state], 
+                           outputs=[interactive_state])
+        
         # tracking video from select image and mask
         tracking_video_predict_button.click(
             fn=lambda x, y, z: vos_tracking_video(x, y, z, model, root_dir),
@@ -707,7 +800,7 @@ def track_anything_interface(vidname):
             outputs=[video_output, video_state, interactive_state, run_status],
         )
 
-        exit.click(fn=exit_gradio, inputs=[], outputs=None)
+        exit.click(fn=exit_gradio, inputs=[])
         # click to get mask
         mask_dropdown.change(
             fn=show_mask,
@@ -730,6 +823,7 @@ def track_anything_interface(vidname):
                     "fps": 30,
                 },
                 {
+                    "text_prompt" : "",
                     "inference_times": 0,
                     "negative_click_times": 0,
                     "positive_click_times": 0,
@@ -754,6 +848,9 @@ def track_anything_interface(vidname):
                 gr.update(visible=False),
                 gr.update(visible=False),
                 gr.update(visible=False),
+                gr.update(visible=False),
+                gr.update(visible=False),
+                gr.update(visible=False),
             ),
             [],
             [
@@ -771,6 +868,7 @@ def track_anything_interface(vidname):
                 video_output,
                 mask_dropdown,
                 remove_mask_button,
+                text_prompt,
                 run_status,
             ],
             queue=False,
