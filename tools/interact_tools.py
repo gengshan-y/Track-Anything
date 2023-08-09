@@ -29,7 +29,7 @@ point_radius = 15
 contour_color = 2
 contour_width = 5
 
-gdino_config = "./preprocess/third_party/GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py"
+gdino_config = "./preprocess/third_party/Track-Anything/config/GroundingDINO_SwinT_OGC.py"
                  
 class SamControler():
     def __init__(self, SAM_checkpoint, gdino_checkpoint, model_type, device):

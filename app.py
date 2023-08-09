@@ -39,6 +39,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 os.environ["GRADIO_TEMP_DIR"] = "./tmp"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # download checkpoints
 def download_checkpoint(url, folder, filename):
@@ -116,7 +117,6 @@ def get_frames_from_video(video_input, video_state, model, videos):
     """
     video_path = video_input
     id = video_input.split("/")[-1][:-4] # remove .mp4
-    scale_percent = video_state["scale_percent"]
     video_backend = video_state["video_backend"]
     frames = []
     user_name = time.time()
@@ -159,7 +159,6 @@ def get_frames_from_video(video_input, video_state, model, videos):
         "input": videos[id]["input"],
         "output": videos[id]["output"],
         "original_size" : videos[id]["size"],
-        "scale_percent" : scale_percent,
         "video_backend" : video_backend,
     }
     model.samcontroler.sam_controler.reset_image()
@@ -382,7 +381,7 @@ def vos_tracking_video(video_state, interactive_state, mask_dropdown, model, roo
         dim = (width, height)
 
         # resize image
-        resized_mask = cv2.resize(masks, dim, interpolation=cv2.INTER_AREA)
+        resized_mask = cv2.resize(masks, dim, interpolation=cv2.INTER_NEAREST)
         resized_painted_mask = cv2.resize(
             painted_masks, dim, interpolation=cv2.INTER_AREA
         )
@@ -546,7 +545,6 @@ def track_anything_interface(vidname):
         shutil.rmtree(tmp_dir)
     os.mkdir(tmp_dir)
 
-    scale_percent = args.scale_percent  # percent of original size
     video_backend = args.video_backend 
     original_size = (None, None)
     for path in tqdm(input_dir):
@@ -556,10 +554,13 @@ def track_anything_interface(vidname):
         for file in sorted(os.listdir(path)):
             if isImageFile(file):
                 frame = cv2.imread(path + "/" + file)
-                original_size = (frame.shape[1], frame.shape[0])
-                width = int(frame.shape[1] * scale_percent)
-                height = int(frame.shape[0] * scale_percent)
-                dim = (width, height)
+                if len(frames)==0:
+                    original_size = (frame.shape[1], frame.shape[0])
+                    # make sure the total pixel is less than (800x800)
+                    scale_percent = np.sqrt(640000 / (original_size[0] * original_size[1]))
+                    width = int(frame.shape[1] * scale_percent)
+                    height = int(frame.shape[0] * scale_percent)
+                    dim = (width, height)
 
                 # resize image
                 resized = cv2.resize(frame, dim, interpolation=cv2.INTER_AREA)
@@ -588,8 +589,8 @@ def track_anything_interface(vidname):
                     7. To process another video from the bottom carousel, click **Clear Clicks** and **Remove Masks** and repeat steps 2-6.
                     8. To exit the Gradio webapp, click **Exit** (or Ctrl-C).
                     
-                    ### Using Text Prompts
-                    3. Type the name of the category you wish to segment. We only support single instance segmentation
+                    ### Using Text Prompts (We only support single instance segmentation)
+                    3. Type the name of the category you wish to segment. Press Enter on the keyboard.
                     4. Click **Tracking**. This will automatically run XMEM and save the output
                     5. To process another video from the bottom carousel, click **Clear Clicks** and **Remove Masks** and repeat steps 2-6.
                     6. To exit the Gradio webapp, click **Exit** (or Ctrl-C).
@@ -628,7 +629,6 @@ def track_anything_interface(vidname):
                 "logits": None,
                 "select_frame_number": 0,
                 "fps": 30,
-                "scale_percent" : scale_percent,
                 "original_size" : (None, None),
                 "video_backend" : video_backend
             }

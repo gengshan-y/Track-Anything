@@ -85,7 +85,7 @@ def parse_argument():
     )
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--mask_save", default=True)
-    parser.add_argument("--scale_percent", default=0.25, type=float)
+    #parser.add_argument("--scale_percent", default=0.25, type=float)
     #parser.add_argument("--box_threshold", default=0.35, type=float)
     #parser.add_argument("--text_threshold", default=0.25, type=float)
 
