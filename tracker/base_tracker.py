@@ -99,7 +99,7 @@ class BaseTracker:
         for obj in range(1, num_objs+1):
             if np.max(final_mask==obj) == 0:
                 continue
-            painted_image = mask_painter(painted_image, (final_mask==obj).astype('uint8'), mask_color=obj+1)
+            painted_image = mask_painter(painted_image, (final_mask==obj).astype('uint8'), mask_color=obj+2)
 
         # print(f'max memory allocated: {torch.cuda.max_memory_allocated()/(2**20)} MB')
 

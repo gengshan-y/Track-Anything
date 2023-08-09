@@ -202,6 +202,7 @@ def track_anything_cli(
     for painted_img in painted_images:
         painted_imgs_rgb.append(painted_img[:, :, ::-1])
     imageio.mimsave("%s/vis.mp4" % output_folder, painted_imgs_rgb, fps=10)
+    print("Segmentation output saved to %s" % output_folder)
 
 
 if __name__ == "__main__":
