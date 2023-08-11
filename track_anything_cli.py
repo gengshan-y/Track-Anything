@@ -20,16 +20,33 @@ import imageio
 from groundingdino.util.inference import load_model, load_image, predict, annotate
 from segment_anything import SamPredictor, sam_model_registry
 from tracker.base_tracker import BaseTracker
+from app import download_checkpoint, wget_checkpoint
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+root_dir = "./preprocess/third_party/Track-Anything/"
+folder = "%s/checkpoints" % root_dir
+
+
+sam_checkpoint = "sam_vit_h_4b8939.pth"
+sam_checkpoint_url = (
+    "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth"
+)
+xmem_checkpoint = "XMem-s012.pth"
+xmem_checkpoint_url = (
+    "https://github.com/hkchengrex/XMem/releases/download/v1.0/XMem-s012.pth"
+)
+
+gdino_checkpoint = "groundingdino_swint_ogc.pth"
+gdino_checkpoint_url = "https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha/groundingdino_swint_ogc.pth"
 
 model_config = {
     "DINO": "./preprocess/third_party/Track-Anything/config/GroundingDINO_SwinT_OGC.py"
 }
 model_weights = {
-    "DINO": "./preprocess/third_party/Track-Anything/checkpoints/groundingdino_swint_ogc.pth",
-    "SAM": "./preprocess/third_party/Track-Anything/checkpoints/sam_vit_h_4b8939.pth",
-    "XMEM": "./preprocess/third_party/Track-Anything/checkpoints/XMem-s012.pth",
+    "DINO": wget_checkpoint(gdino_checkpoint_url, folder, gdino_checkpoint),
+    "SAM": download_checkpoint(sam_checkpoint_url, folder, sam_checkpoint),
+    "XMEM": download_checkpoint(xmem_checkpoint_url, folder, xmem_checkpoint),
 }
 
 
