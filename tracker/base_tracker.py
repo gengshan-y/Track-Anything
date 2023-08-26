@@ -102,8 +102,9 @@ class BaseTracker:
             painted_image = mask_painter(painted_image, (final_mask==obj).astype('uint8'), mask_color=obj+2)
 
         # print(f'max memory allocated: {torch.cuda.max_memory_allocated()/(2**20)} MB')
-
-        return final_mask, final_mask, painted_image
+        score_per_frame = probs.reshape(probs.shape[0],-1).max(-1)[0]
+        # print(score_per_frame)
+        return final_mask, score_per_frame, painted_image
 
     @torch.no_grad()
     def sam_refinement(self, frame, logits, ti):

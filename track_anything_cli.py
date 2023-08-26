@@ -158,6 +158,7 @@ def track_anything_cli(
     TEXT_THRESHOLD=0.25,
 ):
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+    print("Processing %s" % input_folder)
 
     if output_folder == "":
         output_folder = input_folder.replace("JPEGImages", "Annotations")
@@ -201,13 +202,27 @@ def track_anything_cli(
     boxes, annotated_frame = extract_bbox(
         dino_model, image_paths[0], text_prompt, BOX_THRESHOLD, TEXT_THRESHOLD
     )
-    track_init = extract_mask(sam_model, image_paths[0], boxes)
 
-    track_init = cv2.resize(track_init, dim, interpolation=cv2.INTER_NEAREST)
-    masks, logits, painted_images = extract_tracks(xmem_model, track_init, images)
+    if len(boxes) == 0:
+        masks = np.zeros((len(images), original_size[1], original_size[0]))
+        painted_images = np.zeros((len(images), original_size[1], original_size[0], 3))
+        painted_images = painted_images.astype(np.uint8)
+        logits = np.zeros((len(images), 2))
+        print("Detection failed on the first frame")
+    else:
+        track_init = extract_mask(sam_model, image_paths[0], boxes)
 
-    for mask, painted_img, img_ext in zip(masks, painted_images, image_exts):
+        track_init = cv2.resize(track_init, dim, interpolation=cv2.INTER_NEAREST)
+        masks, logits, painted_images = extract_tracks(xmem_model, track_init, images)
+
+    for mask, painted_img, img_ext, logits_per_frame in zip(
+        masks, painted_images, image_exts, logits
+    ):
         mask = cv2.resize(mask, original_size, interpolation=cv2.INTER_NEAREST)
+        mask = mask.astype(np.int8)
+        # set to undetected if less than 100 pixels detected, or conf is too low
+        if (mask > 0).sum() <= 100 or logits_per_frame[1:].max() < 0.9:
+            mask[:] = -1
         np.save("{}/{}.npy".format(output_folder, img_ext), mask)
 
         painted_img = cv2.resize(
@@ -228,7 +243,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--input-folder", type=str, required=True)
     parser.add_argument("--output-folder", type=str, default="")
-    parser.add_argument("--box-threshold", type=float, default=0.35)
+    parser.add_argument("--box-threshold", type=float, default=0.7)
     parser.add_argument("--text-threshold", type=float, default=0.25)
     parser.add_argument("--text-prompt", type=str, required=True)
 
