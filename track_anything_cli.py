@@ -77,6 +77,7 @@ def extract_bbox(model, img_path, text_prompt, BOX_THRESHOLD=0.35, TEXT_THRESHOL
     # make sure the bbox are sorted by confidence
     boxes = boxes[torch.argsort(logits, descending=True)]
     # TODO enable multi object tracking
+    # boxes = boxes[:2]
     boxes = boxes[:1]
     return boxes, annotated_frame
 
@@ -223,6 +224,8 @@ def track_anything_cli(
         # set to undetected if less than 100 pixels detected, or conf is too low
         if (mask > 0).sum() <= 100 or logits_per_frame[1:].max() < 0.9:
             mask[:] = -1
+        else:
+            mask[mask>0] = 1
         np.save("{}/{}.npy".format(output_folder, img_ext), mask)
 
         painted_img = cv2.resize(
