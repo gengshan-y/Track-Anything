@@ -570,7 +570,7 @@ def track_anything_interface(vidname):
         frames = torch.from_numpy(np.asarray(frames))
         generate_video_from_frames(frames, "%s/%s.mp4" % (tmp_dir, id), video_backend=video_backend)
     
-    size.append(original_size)
+        size.append(original_size)
     
     videos = {}
     for id, input, output, osize in zip(uuids, input_dir, output_dir, size):
